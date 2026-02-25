@@ -1,0 +1,11 @@
+[package]
+name = "cgt"
+version = "0.1.0"
+edition = "2024"
+description = "Some tools for research on computational game theory"
+license = "GPL-3.0-or-later"
+keywords = ["game theory", "hedonic games"]
+categories = ["algorithms", "science"]
+
+[dependencies]
+grid = "*"
