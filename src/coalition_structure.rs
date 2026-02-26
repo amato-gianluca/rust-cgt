@@ -5,14 +5,14 @@ use super::*;
 #[derive(Clone, Debug)]
 pub struct CoalitionStructure<'a> {
     pub game: &'a HedonicGame,
-    pub ag_map: Vec<Coalition>,
-    pub co_sizes: Vec<usize>,
-    pub size: usize,
+    ag_map: Vec<Coalition>,
+    co_sizes: Vec<usize>,
+    size: usize,
 }
 
 pub struct Utility {
-    ut: Weight,
-    size: usize,
+    pub ut: Weight,
+    pub size: usize,
     is_fractional: bool,
 }
 
@@ -258,6 +258,103 @@ impl<'a> CoalitionStructure<'a> {
 impl<'a> PartialEq for CoalitionStructure<'a> {
     fn eq(&self, other: &Self) -> bool {
         std::ptr::eq(self.game, other.game) && self.ag_map == other.ag_map
+    }
+}
+
+pub struct CoalitionStructures<'a> {
+    cs: CoalitionStructure<'a>,
+    cs_nums: Vec<usize>,
+    size: usize,
+    first_unvalid: usize,
+    fixed_size: bool,
+}
+
+impl<'a> CoalitionStructures<'a> {
+    pub fn new(game: &'a HedonicGame, size: Option<usize>) -> CoalitionStructures<'a> {
+        let cs = CoalitionStructure::new_unchecked(game, vec![0; game.agent_count()], vec![0; game.agent_count()], 1);
+        CoalitionStructures {
+            cs,
+            cs_nums: vec![0; game.agent_count() + 1],
+            size: size.unwrap_or(1),
+            first_unvalid: 0,
+            fixed_size: size.is_some(),
+        }
+    }
+
+    fn cs_next_fixedsize(&mut self) -> bool {
+        let agent_count = self.cs.agent_count();
+        let mut ag = std::cmp::min(self.first_unvalid, agent_count - 1);
+        loop {
+            if ag == agent_count {
+                return true;
+            }
+            let coalitions_potential = self.cs_nums[ag] + (agent_count - ag);
+            let bot = if coalitions_potential > self.size { 0 } else { self.cs_nums[ag] };
+            let top = if self.cs_nums[ag] < self.size { self.cs_nums[ag] } else { self.cs_nums[ag] - 1 };
+            let mut co_new = if ag < self.first_unvalid {
+                let co = self.cs.ag_map[ag];
+                self.cs.co_sizes[co] -= 1;
+                std::cmp::max(co + 1, bot)
+            } else {
+                self.first_unvalid += 1;
+                bot
+            };
+            while co_new <= top {
+                if let Some(k) = self.cs.game.k {
+                    if self.cs.co_sizes[co_new] >= k {
+                        co_new += 1;
+                        continue;
+                    }
+                }
+                break;
+            }
+            if co_new <= top {
+                self.cs.ag_map[ag] = co_new;
+                self.cs.co_sizes[co_new] += 1;
+                self.cs_nums[ag + 1] = std::cmp::max(self.cs_nums[ag], co_new + 1);
+                self.cs.size = self.cs_nums[ag + 1];
+                ag += 1;
+            } else {
+                self.first_unvalid = ag;
+                if ag == 0 {
+                    return false;
+                } else {
+                    self.cs.size = self.cs_nums[ag - 1];
+                    ag -= 1;
+                }
+            }
+        }
+    }
+
+    pub fn cs_next(&mut self) -> bool {
+        while self.size <= self.cs.agent_count() {
+            if self.cs_next_fixedsize() {
+                return true;
+            }
+            self.size += 1;
+            self.cs.ag_map.fill(0);
+            self.cs.co_sizes.fill(0);
+            self.cs.size = 0;
+            self.cs_nums.fill(0);
+            self.first_unvalid = 0
+        }
+        false
+    }
+
+    pub fn next_lending(&mut self) -> Option<&CoalitionStructure<'a>> {
+        let res = if self.fixed_size { self.cs_next_fixedsize() } else { self.cs_next() };
+        if res { Some(&self.cs) } else { None }
+    }
+}
+
+impl<'a> Iterator for CoalitionStructures<'a> {
+    type Item = CoalitionStructure<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.next_lending() {
+            Some(cs) => Some(cs.clone()),
+            None => None,
+        }
     }
 }
 

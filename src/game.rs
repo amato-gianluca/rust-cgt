@@ -4,7 +4,9 @@ use std::usize;
 
 use grid::*;
 
-use super::*;
+use super::coalition_structure::*;
+use super::graph::*;
+use super::types::*;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum GameType {
@@ -63,7 +65,7 @@ impl HedonicGame {
     }
 
     pub fn isolated_coalition_structure<'a>(&'a self) -> CoalitionStructure<'a> {
-        self.coalition_structure((0..self.agent_count()).collect())
+        self.coalition_structure(self.agents().collect())
     }
 
     pub fn big_coalition_structure<'a>(&'a self) -> Option<CoalitionStructure<'a>> {
@@ -76,8 +78,8 @@ impl HedonicGame {
         Some(self.coalition_structure(cs))
     }
 
-    pub fn coalition_structures<'a>(&'a self, cs_size: Option<usize>) -> CoalitionStructures<'a> {
-        CoalitionStructures::new(self, cs_size)
+    pub fn coalition_structures<'a>(&'a self, size: Option<usize>) -> CoalitionStructures<'a> {
+        CoalitionStructures::new(self, size)
     }
 
     pub fn nash_stable_coalition_structures<'a>(&'a self) -> impl Iterator<Item = CoalitionStructure<'a>> {
@@ -86,30 +88,34 @@ impl HedonicGame {
     }
 
     pub fn has_nash_stable_coalition_structure(&self) -> bool {
-        let mut cit = CoalitionStructureLendingIterator::new(self, None, false);
-        while cit.cs_next(self.k) != false {
-            if ! cit.cs.has_improving_deviation() {
-                return true;
+        let mut cit = CoalitionStructures::new(self, None);
+        loop {
+            match cit.next_lending() {
+                Some(cs) => {
+                    if !cs.has_improving_deviation() {
+                        return true;
+                    }
+                }
+                None => return false,
             }
         }
-        false
     }
 
     pub fn enumerate(
         agent_count: usize,
-        graph_type: graph::GraphType,
+        graph_type: GraphType,
         m_begin: Weight,
         m_end: Weight,
         game_type: GameType,
         k: Option<usize>,
     ) -> impl Iterator<Item = HedonicGame> {
-        graph::Graph::enumerate(agent_count, graph_type == graph::GraphType::Undirected, m_begin, m_end)
+        Graph::enumerate(agent_count, graph_type == GraphType::Undirected, m_begin, m_end)
             .map(move |g| Self::new(g, k, game_type))
     }
 
     pub fn enumeate_unstable(
         agent_count: usize,
-        graph_type: graph::GraphType,
+        graph_type: GraphType,
         m_begin: Weight,
         m_end: Weight,
         game_type: GameType,
@@ -119,13 +125,13 @@ impl HedonicGame {
             .filter(|g| !g.has_nash_stable_coalition_structure())
     }
 
-    pub fn count(agent_count: usize, graph_type: graph::GraphType, m_begin: Weight, m_end: Weight) -> usize {
-        graph::Graph::count(agent_count, graph_type == graph::GraphType::Undirected, m_begin, m_end)
+    pub fn count(agent_count: usize, graph_type: GraphType, m_begin: Weight, m_end: Weight) -> usize {
+        Graph::count(agent_count, graph_type == GraphType::Undirected, m_begin, m_end)
     }
 
     pub fn count_unstable(
         agent_count: usize,
-        graph_type: graph::GraphType,
+        graph_type: GraphType,
         m_begin: Weight,
         m_end: Weight,
         game_type: GameType,
@@ -191,114 +197,6 @@ impl Index<(usize, usize)> for HedonicGame {
 impl IndexMut<(usize, usize)> for HedonicGame {
     fn index_mut(&mut self, index: (usize, usize)) -> &mut Self::Output {
         &mut self.graph[index]
-    }
-}
-
-struct CoalitionStructureLendingIterator<'a> {
-    cs: CoalitionStructure<'a>,
-    cs_nums: Vec<usize>,
-    size: usize,
-    first_unvalid: usize,
-    fixed_size: bool,
-}
-
-impl<'a> CoalitionStructureLendingIterator<'a> {
-    fn new(game: &'a HedonicGame, size: Option<usize>, fixed_size: bool) -> CoalitionStructureLendingIterator<'a> {
-        let cs = CoalitionStructure::new_unchecked(game, vec![0; game.agent_count()], vec![0; game.agent_count()], 1);
-        CoalitionStructureLendingIterator {
-            cs,
-            cs_nums: vec![0; game.agent_count() + 1],
-            size: size.unwrap_or(1),
-            first_unvalid: 0,
-            fixed_size,
-        }
-    }
-
-    fn cs_next_fixedsize(&mut self, k: Option<usize>) -> bool {
-        let agent_count = self.cs.agent_count();
-        let mut ag = std::cmp::min(self.first_unvalid, agent_count - 1);
-        loop {
-            if ag == agent_count {
-                return true;
-            }
-            let coalitions_potential = self.cs_nums[ag] + (agent_count - ag);
-            let bot = if coalitions_potential > self.size { 0 } else { self.cs_nums[ag] };
-            let top = if self.cs_nums[ag] < self.size { self.cs_nums[ag] } else { self.cs_nums[ag] - 1 };
-            let mut co_new = if ag < self.first_unvalid {
-                let co = self.cs.ag_map[ag];
-                self.cs.co_sizes[co] -= 1;
-                std::cmp::max(co + 1, bot)
-            } else {
-                self.first_unvalid += 1;
-                bot
-            };
-            while co_new <= top {
-                if let Some(k) = k {
-                    if self.cs.co_sizes[co_new] >= k {
-                        co_new += 1;
-                        continue;
-                    }
-                }
-                break;
-            }
-            if co_new <= top {
-                self.cs.ag_map[ag] = co_new;
-                self.cs.co_sizes[co_new] += 1;
-                self.cs_nums[ag + 1] = std::cmp::max(self.cs_nums[ag], co_new + 1);
-                self.cs.size = self.cs_nums[ag + 1];
-                ag += 1;
-            } else {
-                self.first_unvalid = ag;
-                if ag == 0 {
-                    return false;
-                } else {
-                    self.cs.size = self.cs_nums[ag - 1];
-                    ag -= 1;
-                }
-            }
-        }
-    }
-
-    fn cs_next(&mut self, k: Option<usize>) -> bool {
-        while self.size <= self.cs.agent_count() {
-            if self.cs_next_fixedsize(k) {
-                return true;
-            }
-            self.size += 1;
-            self.cs.ag_map.fill(0);
-            self.cs.co_sizes.fill(0);
-            self.cs.size = 0;
-            self.cs_nums.fill(0);
-            self.first_unvalid = 0
-        }
-        false
-    }
-
-    fn next(&mut self) -> Option<&CoalitionStructure<'a>> {
-        let res = if self.fixed_size { self.cs_next_fixedsize(self.cs.game.k) } else { self.cs_next(self.cs.game.k) };
-        if res { Some(&self.cs) } else { None }
-    }
-}
-
-pub struct CoalitionStructures<'a> {
-    cit: CoalitionStructureLendingIterator<'a>,
-}
-
-impl<'a> CoalitionStructures<'a> {
-    fn new(game: &'a HedonicGame, size: Option<usize>) -> CoalitionStructures<'a> {
-        let cit = CoalitionStructureLendingIterator::new(game, size, size.is_some());
-        CoalitionStructures { cit }
-    }
-}
-
-impl<'a> Iterator for CoalitionStructures<'a> {
-    type Item = CoalitionStructure<'a>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self.cit.next() {
-            Some(cs) => Some(cs.clone()),
-            None => None,
-        }
     }
 }
 
@@ -567,7 +465,7 @@ mod tests {
             for i in 0..(k + 1) {
                 edges.push((i, (i + 1) % (k + 1), 1));
             }
-            let graph = Graph::from_edges(k + 1, &edges, graph::GraphType::Directed);
+            let graph = Graph::from_edges(k + 1, &edges, GraphType::Directed);
             let game = HedonicGame::new(graph, Some(k), Fractional);
             assert!(!game.has_nash_stable_coalition_structure());
         }
@@ -634,20 +532,20 @@ mod tests {
     #[test]
     fn test_graph_to_from_weights() {
         let edges = vec![(0, 1, 9), (0, 2, 9), (0, 3, 4), (1, 2, 1), (1, 3, 7), (2, 3, 7)];
-        let graph = Graph::from_edges(4, &edges, graph::GraphType::Undirected);
+        let graph = Graph::from_edges(4, &edges, GraphType::Undirected);
         assert_eq!(globals::GAME_K3_NOEQUILIBRIUM_PAPER.graph, graph);
     }
 
     #[test]
     fn test_count_games() {
-        assert_eq!(HedonicGame::count(4, graph::GraphType::Undirected, 0, 2), 72);
-        assert_eq!(HedonicGame::count(4, graph::GraphType::Undirected, 2, 2), 61);
+        assert_eq!(HedonicGame::count(4, GraphType::Undirected, 0, 2), 72);
+        assert_eq!(HedonicGame::count(4, GraphType::Undirected, 2, 2), 61);
     }
 
     #[test]
     fn test_count_unstable_games() {
         let (count_unstable, count_total, _) =
-            HedonicGame::count_unstable(6, graph::GraphType::Undirected, 2, 2, GameType::Fractional, Some(4));
+            HedonicGame::count_unstable(6, GraphType::Undirected, 2, 2, GameType::Fractional, Some(4));
         assert_eq!(count_unstable, 9);
         assert_eq!(count_total, 66515);
         //let weights = vec![0, 1, 4, 7, 9];
