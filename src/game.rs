@@ -79,17 +79,13 @@ impl HedonicGame {
         CoalitionStructures::new(self, cs_size)
     }
 
-    pub fn nash_stable_coalition_structures<'a>(&'a self) -> Vec<CoalitionStructure<'a>> {
+    pub fn nash_stable_coalition_structures<'a>(&'a self) -> impl Iterator<Item = CoalitionStructure<'a>> {
         self.coalition_structures(None)
-            .filter(|cs| cs.is_nash_stable())
-            .collect()
+            .filter(|cs| ! cs.has_improving_deviation())
     }
 
     pub fn has_nash_stable_coalition_structure(&self) -> bool {
-        self.coalition_structures(None)
-            .filter(|cs| cs.is_nash_stable())
-            .next()
-            .is_some()
+        self.nash_stable_coalition_structures().next().is_some()
     }
 
     pub fn enumerate(
@@ -436,14 +432,6 @@ mod tests {
 
     static GRAPH1: LazyLock<Graph> = LazyLock::new(|| Graph::from_grid(grid![[0,0,2][1,0,3][2,0,0]]));
     static GAME1_FRAC: LazyLock<HedonicGame> = LazyLock::new(|| HedonicGame::new(GRAPH1.clone(), None, Fractional));
-    static GAME1_FRAC_CS1: LazyLock<CoalitionStructure> =
-        LazyLock::new(|| CoalitionStructure::from_vec(&GAME1_FRAC, vec![0, 1, 0]));
-    static GAME1_FRAC_CS2: LazyLock<CoalitionStructure> =
-        LazyLock::new(|| CoalitionStructure::from_vec(&GAME1_FRAC, vec![0, 0, 0]));
-    static GAME1_NOFRAC: LazyLock<HedonicGame> = LazyLock::new(|| HedonicGame::new(GRAPH1.clone(), None, Additive));
-    static GAME1_NOFRAC_CS1: LazyLock<CoalitionStructure> =
-        LazyLock::new(|| CoalitionStructure::from_vec(&GAME1_NOFRAC, vec![0, 1, 0]));
-
     static GAME1_FRAC_K1: LazyLock<HedonicGame> =
         LazyLock::new(|| HedonicGame::new(GRAPH1.clone(), Some(1), Fractional));
     static GAME1_FRAC_K2: LazyLock<HedonicGame> =
@@ -462,52 +450,6 @@ mod tests {
             .map(|cs| game.coalition_structure(cs.clone()))
             .collect::<Vec<_>>();
         assert_eq!(v1, v2);
-    }
-
-    #[test]
-    fn test_size() {
-        assert_eq!(GAME1_FRAC_CS1.size(), 2);
-        assert_eq!(GAME1_FRAC_CS2.size(), 1);
-    }
-
-    #[test]
-    fn test_coalition_size() {
-        assert_eq!(GAME1_FRAC_CS1.coalition_size(0), 2);
-        assert_eq!(GAME1_FRAC_CS2.coalition_size(0), 3);
-    }
-
-    #[test]
-    fn test_agent_utility() {
-        assert_eq!(GAME1_FRAC_CS1.agent_utility(0).to_float(), 1.0);
-        assert_eq!(GAME1_FRAC_CS1.agent_utility(1).to_float(), 0.0);
-        assert_eq!(GAME1_FRAC_CS1.agent_utility(2).to_float(), 1.0);
-        assert_eq!(GAME1_NOFRAC_CS1.agent_utility(0).to_float(), 2.0);
-        assert_eq!(GAME1_NOFRAC_CS1.agent_utility(1).to_float(), 0.0);
-    }
-
-    #[test]
-    fn test_coalition_social_welfare() {
-        assert_eq!(GAME1_FRAC_CS1.coalition_social_welfare(0).to_float(), 2.0);
-        assert_eq!(GAME1_FRAC_CS1.coalition_social_welfare(1).to_float(), 0.0);
-    }
-
-    #[test]
-    fn test_social_welfare() {
-        assert_eq!(GAME1_FRAC_CS1.social_welfare(), 2.0);
-        assert_eq!(GAME1_NOFRAC_CS1.social_welfare(), 4.0);
-    }
-
-    #[test]
-    fn test_is_improving_deviation() {
-        assert!(GAME1_FRAC_CS1.is_improving_deviation(1, 0));
-        assert!(GAME1_FRAC_CS1.is_improving_deviation(1, 0));
-        assert!(!GAME1_FRAC_CS1.is_improving_deviation(0, 0));
-    }
-
-    #[test]
-    fn test_equality() {
-        assert_eq!(*GAME1_FRAC_CS1, *GAME1_FRAC_CS1);
-        assert_ne!(*GAME1_FRAC_CS1, *GAME1_NOFRAC_CS1);
     }
 
     #[test]
@@ -688,16 +630,6 @@ mod tests {
         let edges = vec![(0, 1, 9), (0, 2, 9), (0, 3, 4), (1, 2, 1), (1, 3, 7), (2, 3, 7)];
         let graph = Graph::from_edges(4, &edges, graph::GraphType::Undirected);
         assert_eq!(globals::GAME_K3_NOEQUILIBRIUM_PAPER.graph, graph);
-    }
-
-    #[test]
-    fn test_move_to() {
-        let csa = GAME1_FRAC_CS1.move_to(2, 2);
-        assert_eq!(csa, CoalitionStructure::from_vec(&GAME1_FRAC, vec![0, 1, 2]));
-        let csa = csa.move_to(0, 2);
-        assert_eq!(csa, CoalitionStructure::from_vec(&GAME1_FRAC, vec![0, 1, 0]));
-        let csa = csa.move_to(2, 1);
-        assert_eq!(csa, CoalitionStructure::from_vec(&GAME1_FRAC, vec![0, 1, 1]));
     }
 
     #[test]
