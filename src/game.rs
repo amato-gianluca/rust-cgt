@@ -58,7 +58,7 @@ impl HedonicGame {
     }
 
     pub fn coalition_structure<'a>(&'a self, cs: Vec<usize>) -> CoalitionStructure<'a> {
-        CoalitionStructure::new(self, cs)
+        CoalitionStructure::from_vec(self, cs)
     }
 
     pub fn isolated_coalition_structure<'a>(&'a self) -> CoalitionStructure<'a> {
@@ -290,7 +290,7 @@ impl<'a> Iterator for CoalitionStructures<'a> {
             self.cit.cs_next(self.game.k)
         };
         if res {
-            Some(CoalitionStructure::new(
+            Some(CoalitionStructure::from_vec(
                 self.game,
                 self.cit.cs.iter().map(|&x| x as usize).collect(),
             ))
@@ -437,12 +437,12 @@ mod tests {
     static GRAPH1: LazyLock<Graph> = LazyLock::new(|| Graph::from_grid(grid![[0,0,2][1,0,3][2,0,0]]));
     static GAME1_FRAC: LazyLock<HedonicGame> = LazyLock::new(|| HedonicGame::new(GRAPH1.clone(), None, Fractional));
     static GAME1_FRAC_CS1: LazyLock<CoalitionStructure> =
-        LazyLock::new(|| CoalitionStructure::new(&GAME1_FRAC, vec![0, 1, 0]));
+        LazyLock::new(|| CoalitionStructure::from_vec(&GAME1_FRAC, vec![0, 1, 0]));
     static GAME1_FRAC_CS2: LazyLock<CoalitionStructure> =
-        LazyLock::new(|| CoalitionStructure::new(&GAME1_FRAC, vec![0, 0, 0]));
+        LazyLock::new(|| CoalitionStructure::from_vec(&GAME1_FRAC, vec![0, 0, 0]));
     static GAME1_NOFRAC: LazyLock<HedonicGame> = LazyLock::new(|| HedonicGame::new(GRAPH1.clone(), None, Additive));
     static GAME1_NOFRAC_CS1: LazyLock<CoalitionStructure> =
-        LazyLock::new(|| CoalitionStructure::new(&GAME1_NOFRAC, vec![0, 1, 0]));
+        LazyLock::new(|| CoalitionStructure::from_vec(&GAME1_NOFRAC, vec![0, 1, 0]));
 
     static GAME1_FRAC_K1: LazyLock<HedonicGame> =
         LazyLock::new(|| HedonicGame::new(GRAPH1.clone(), Some(1), Fractional));
@@ -693,11 +693,11 @@ mod tests {
     #[test]
     fn test_move_to() {
         let csa = GAME1_FRAC_CS1.move_to(2, 2);
-        assert_eq!(csa, CoalitionStructure::new(&GAME1_FRAC, vec![0, 1, 2]));
+        assert_eq!(csa, CoalitionStructure::from_vec(&GAME1_FRAC, vec![0, 1, 2]));
         let csa = csa.move_to(0, 2);
-        assert_eq!(csa, CoalitionStructure::new(&GAME1_FRAC, vec![0, 1, 0]));
+        assert_eq!(csa, CoalitionStructure::from_vec(&GAME1_FRAC, vec![0, 1, 0]));
         let csa = csa.move_to(2, 1);
-        assert_eq!(csa, CoalitionStructure::new(&GAME1_FRAC, vec![0, 1, 1]));
+        assert_eq!(csa, CoalitionStructure::from_vec(&GAME1_FRAC, vec![0, 1, 1]));
     }
 
     #[test]

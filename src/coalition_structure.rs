@@ -3,8 +3,8 @@ use super::*;
 #[derive(Clone, Debug)]
 pub struct CoalitionStructure<'a> {
     pub game: &'a HedonicGame,
-    pub cs: Vec<usize>,
-    sizes: Vec<usize>,
+    pub cos: Vec<usize>,
+    cos_size: Vec<usize>,
 }
 
 pub struct Utility {
@@ -16,11 +16,7 @@ pub struct Utility {
 impl Utility {
     pub fn to_float(&self) -> f64 {
         if self.is_fractional {
-            if self.size == 0 {
-                0.0
-            } else {
-                self.ut as f64 / self.size as f64
-            }
+            if self.size == 0 { 0.0 } else { self.ut as f64 / self.size as f64 }
         } else {
             self.ut as f64
         }
@@ -28,68 +24,76 @@ impl Utility {
 }
 
 impl<'a> CoalitionStructure<'a> {
-    pub fn new(game: &'a HedonicGame, cs: Vec<usize>) -> Self {
-        assert!(
-            cs.len() == game.agent_count(),
+    pub fn new(game: &'a HedonicGame, cos: Vec<Agent>, cos_size: Vec<Coalition>) -> Self {
+        debug_assert_eq!(
+            cos.len(),
+            game.agent_count(),
             "The coalition structure should have the same size as the number of agents."
         );
-        let max = *cs.iter().max().unwrap_or(&0);
-        let mut seen = vec![false; max + 1];
-        for &c in &cs {
-            if c > max {
-                continue;
-            }
-            seen[c] = true;
-        }
-        assert!(
-            seen.iter().all(|&v| v),
+        debug_assert_eq!(
+            cos_size.len(),
+            game.agent_count(),
+            "The cos_size field should have the same size as the number of agents."
+        );
+        debug_assert!(
+            {
+                let mut seen = vec![false; cos_size.len()];
+                for &c in &cos {
+                    seen[c] = true;
+                }
+                seen.iter().all(|&v| v)
+            },
             "The coalition structure should contain all integers from `0` to `max(cs)`."
         );
-        let mut sizes = vec![0; cs.len()];
-        for &c in &cs {
-            sizes[c] += 1;
+        CoalitionStructure { game, cos, cos_size }
+    }
+
+    pub fn from_vec(game: &'a HedonicGame, cos: Vec<Agent>) -> Self {
+        let mut size = vec![0; cos.len()];
+        for &c in &cos {
+            size[c] += 1;
         }
-        CoalitionStructure { game, cs, sizes }
+        Self::new(game, cos, size)
     }
 
     pub fn size(&self) -> usize {
-        self.cs.iter().max().unwrap_or(&0) + 1
+        *self.cos.iter().max().unwrap() + 1
+    }
+
+    pub fn agent_count(&self) -> usize {
+        self.cos.len()
     }
 
     pub fn coalition_size(&self, co: Coalition) -> usize {
-        assert!(co < self.size(), "Coalition number out of range.");
-        self.sizes[co]
+        debug_assert!(co < self.size(), "Coalition number out of range.");
+        self.cos_size[co]
     }
 
     pub fn agent_coalition(&self, ag: Agent) -> Coalition {
-        assert!(ag < self.cs.len(), "Agent number out of range.");
-        self.cs[ag]
+        debug_assert!(ag < self.cos.len(), "Agent number out of range.");
+        self.cos[ag]
     }
 
     pub fn coalition_agent_utility(&self, co: Coalition, ag: Agent) -> Utility {
         let mut ut = 0;
-        let mut size = 0;
         for j in 0..self.game.agent_count() {
-            if self.cs[j] == co {
+            if self.cos[j] == co {
                 ut += self.game[(ag, j)];
-                size += 1;
             }
         }
         Utility {
             ut,
-            size,
-            is_fractional: self.game.is_fractional()
+            size: self.cos_size[co],
+            is_fractional: self.game.is_fractional(),
         }
     }
 
     pub fn coalition_social_welfare(&self, co: Coalition) -> Utility {
         let mut ut = 0;
-        let mut size = 0;
         for i in 0..self.game.agent_count() {
-            if self.cs[i] == co {
-                size += 1;
+            if self.cos[i] == co {
                 for j in 0..self.game.agent_count() {
-                    if self.cs[j] == co {
+                    if self.cos[j] == co {
                         ut += self.game[(i, j)];
                     }
                 }
@@ -97,13 +101,13 @@ impl<'a> CoalitionStructure<'a> {
         }
         Utility {
             ut,
-            size,
-            is_fractional: self.game.is_fractional()
+            size: self.cos_size[co],
+            is_fractional: self.game.is_fractional(),
         }
     }
 
     pub fn agent_utility(&self, ag: Agent) -> Utility {
-        let co = self.cs[ag];
+        let co = self.cos[ag];
         self.coalition_agent_utility(co, ag)
     }
 
@@ -114,18 +118,18 @@ impl<'a> CoalitionStructure<'a> {
     }
 
     pub fn has_improving_deviation(&self) -> bool {
-        !self.improving_deviations().is_empty()
+        self.improving_deviations().next().is_some()
     }
 
     pub fn is_improving_deviation(&self, ag: Agent, co_new: Coalition) -> bool {
-        assert!(ag < self.cs.len(), "Agent number out of range.");
-        assert!(co_new <= self.size(), "Coalition number out of range.");
-        let co_old = self.cs[ag];
+        debug_assert!(ag < self.cos.len(), "Agent number out of range.");
+        debug_assert!(co_new <= self.size(), "Coalition number out of range.");
+        let co_old = self.cos[ag];
         if co_old == co_new {
             return false;
         }
         if let Some(k) = self.game.k {
-            if co_new < self.sizes.len() && self.sizes[co_new] == k {
+            if co_new < self.cos_size.len() && self.cos_size[co_new] == k {
                 return false;
             }
         }
@@ -148,46 +152,35 @@ impl<'a> CoalitionStructure<'a> {
         ut_new * size_old as Weight > ut_old * (size_new as Weight + 1)
     }
 
-    pub fn agent_improving_deviations(&self, ag: Agent) -> Vec<Coalition> {
-        assert!(ag < self.cs.len(), "Agent number out of range.");
-        let mut res = Vec::new();
-        for co_new in 0..=self.size() {
-            if self.is_improving_deviation(ag, co_new) {
-                res.push(co_new);
-            }
-        }
-        res
+    pub fn agent_improving_deviations(&self, ag: Agent) -> impl Iterator<Item = Coalition> {
+        debug_assert!(ag < self.cos.len(), "Agent number out of range.");
+        (0..=self.agent_count()).filter(move |&co_new| self.is_improving_deviation(ag, co_new))
     }
 
-    pub fn improving_deviations(&self) -> Vec<(Agent, Coalition)> {
-        let mut res = Vec::new();
-        for ag in self.game.agents() {
-            for co_new in self.agent_improving_deviations(ag) {
-                res.push((ag, co_new));
-            }
-        }
-        res
+    pub fn improving_deviations(&self) -> impl Iterator<Item = (Agent, Coalition)> {
+        self.game
+            .agents()
+            .flat_map(|ag| self.agent_improving_deviations(ag).map(move |co| (ag, co)))
     }
 
     pub fn move_to(&self, ag: Agent, co_new: Coalition) -> CoalitionStructure<'a> {
-        assert!(ag < self.cs.len(), "Agent number out of range.");
-        assert!(co_new <= self.size(), "Coalition number out of range.");
-        if let Some(k) = self.game.k {
-            if co_new < self.sizes.len() {
-                assert!(self.sizes[co_new] < k, "The target coalition size is too large.");
-            }
-        }
-        let co_old = self.cs[ag];
+        debug_assert!(ag < self.cos.len(), "Agent number out of range.");
+        debug_assert!(co_new <= self.size(), "Coalition number out of range.");
+        debug_assert!(
+            if let Some(k) = self.game.k { k < self.size() } else { true },
+            "The target coalition size is too large."
+        );
+        let co_old = self.cos[ag];
         if co_old == co_new {
             return self.clone();
         }
-        if co_old < self.sizes.len() && self.sizes[co_old] == 1 && co_new == self.size() {
+        if co_old < self.cos_size.len() && self.cos_size[co_old] == 1 && co_new == self.size() {
             return self.clone();
         }
-        let mut cs_new = self.cs.clone();
+        let mut cs_new = self.cos.clone();
         cs_new[ag] = co_new;
         Self::normalize_cs(&mut cs_new);
-        CoalitionStructure::new(self.game, cs_new)
+        CoalitionStructure::from_vec(self.game, cs_new)
     }
 
     fn normalize_cs(cs: &mut Vec<usize>) {
@@ -207,9 +200,9 @@ impl<'a> CoalitionStructure<'a> {
     }
 
     pub fn is_agent_nash_stable(&self, ag: Agent) -> bool {
-        assert!(ag < self.cs.len(), "Agent number out of range.");
+        assert!(ag < self.cos.len(), "Agent number out of range.");
         for co_new in 0..=self.size() {
-            if co_new == self.cs[ag] {
+            if co_new == self.cos[ag] {
                 continue;
             }
             if self.is_improving_deviation(ag, co_new) {
@@ -226,7 +219,7 @@ impl<'a> CoalitionStructure<'a> {
     pub fn to_list(&self) -> Vec<Vec<usize>> {
         let mut res = vec![Vec::new(); self.size()];
         for ag in self.game.agents() {
-            let co = self.cs[ag];
+            let co = self.cos[ag];
             res[co].push(ag);
         }
         res
@@ -235,6 +228,6 @@ impl<'a> CoalitionStructure<'a> {
 
 impl<'a> PartialEq for CoalitionStructure<'a> {
     fn eq(&self, other: &Self) -> bool {
-        std::ptr::eq(self.game, other.game) && self.cs == other.cs
+        std::ptr::eq(self.game, other.game) && self.cos == other.cos
     }
 }
