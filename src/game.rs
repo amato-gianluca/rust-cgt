@@ -1,5 +1,6 @@
 use std::ops::{Index, IndexMut};
 use std::sync::LazyLock;
+use std::usize;
 
 use grid::*;
 
@@ -81,11 +82,17 @@ impl HedonicGame {
 
     pub fn nash_stable_coalition_structures<'a>(&'a self) -> impl Iterator<Item = CoalitionStructure<'a>> {
         self.coalition_structures(None)
-            .filter(|cs| ! cs.has_improving_deviation())
+            .filter(|cs| !cs.has_improving_deviation())
     }
 
     pub fn has_nash_stable_coalition_structure(&self) -> bool {
-        self.nash_stable_coalition_structures().next().is_some()
+        let mut cit = CoalitionStructureLendingIterator::new(self, None, false);
+        while cit.cs_next(self.k) != false {
+            if ! cit.cs.has_improving_deviation() {
+                return true;
+            }
+        }
+        false
     }
 
     pub fn enumerate(
@@ -187,48 +194,47 @@ impl IndexMut<(usize, usize)> for HedonicGame {
     }
 }
 
-struct CoalitionStructureLendingIterator {
-    cs: Vec<i64>,
-    cs_sizes: Vec<usize>,
-    cs_nums: Vec<i64>,
-    size: i64,
+struct CoalitionStructureLendingIterator<'a> {
+    cs: CoalitionStructure<'a>,
+    cs_nums: Vec<usize>,
+    size: usize,
+    first_unvalid: usize,
+    fixed_size: bool,
 }
 
-impl CoalitionStructureLendingIterator {
-    fn new(num_agents: usize, size: Option<usize>) -> CoalitionStructureLendingIterator {
+impl<'a> CoalitionStructureLendingIterator<'a> {
+    fn new(game: &'a HedonicGame, size: Option<usize>, fixed_size: bool) -> CoalitionStructureLendingIterator<'a> {
+        let cs = CoalitionStructure::new_unchecked(game, vec![0; game.agent_count()], vec![0; game.agent_count()], 1);
         CoalitionStructureLendingIterator {
-            cs: vec![-1; num_agents],
-            cs_sizes: vec![0; num_agents],
-            cs_nums: vec![-1; num_agents + 1],
-            size: size.unwrap_or(1) as i64,
+            cs,
+            cs_nums: vec![0; game.agent_count() + 1],
+            size: size.unwrap_or(1),
+            first_unvalid: 0,
+            fixed_size,
         }
     }
 
     fn cs_next_fixedsize(&mut self, k: Option<usize>) -> bool {
-        let num_agents = self.cs.len() as i64;
-        let mut ag = if self.cs[0] == -1 { 0 } else { num_agents - 1 };
+        let agent_count = self.cs.agent_count();
+        let mut ag = std::cmp::min(self.first_unvalid, agent_count - 1);
         loop {
-            if ag == num_agents {
+            if ag == agent_count {
                 return true;
             }
-            if ag == -1 {
-                return false;
-            }
-            let coalitions_potential = self.cs_nums[ag as usize] + 1 + (num_agents - ag);
-            let bot = if coalitions_potential > self.size { 0 } else { self.cs_nums[ag as usize] + 1 };
-            let top = if self.cs_nums[ag as usize] + 1 < self.size {
-                self.cs_nums[ag as usize] + 1
+            let coalitions_potential = self.cs_nums[ag] + (agent_count - ag);
+            let bot = if coalitions_potential > self.size { 0 } else { self.cs_nums[ag] };
+            let top = if self.cs_nums[ag] < self.size { self.cs_nums[ag] } else { self.cs_nums[ag] - 1 };
+            let mut co_new = if ag < self.first_unvalid {
+                let co = self.cs.ag_map[ag];
+                self.cs.co_sizes[co] -= 1;
+                std::cmp::max(co + 1, bot)
             } else {
-                self.cs_nums[ag as usize]
+                self.first_unvalid += 1;
+                bot
             };
-            let co = self.cs[ag as usize];
-            if co > -1 {
-                self.cs_sizes[co as usize] -= 1;
-            }
-            let mut co_new = std::cmp::max(co + 1, bot);
             while co_new <= top {
-                if let Some(kv) = k {
-                    if self.cs_sizes[co_new as usize] >= kv {
+                if let Some(k) = k {
+                    if self.cs.co_sizes[co_new] >= k {
                         co_new += 1;
                         continue;
                     }
@@ -236,62 +242,62 @@ impl CoalitionStructureLendingIterator {
                 break;
             }
             if co_new <= top {
-                self.cs[ag as usize] = co_new;
-                self.cs_sizes[co_new as usize] += 1;
-                let prev = self.cs_nums[ag as usize];
-                self.cs_nums[(ag + 1) as usize] = if prev > co_new { prev } else { co_new };
+                self.cs.ag_map[ag] = co_new;
+                self.cs.co_sizes[co_new] += 1;
+                self.cs_nums[ag + 1] = std::cmp::max(self.cs_nums[ag], co_new + 1);
+                self.cs.size = self.cs_nums[ag + 1];
                 ag += 1;
             } else {
-                self.cs[ag as usize] = -1;
-                ag -= 1;
+                self.first_unvalid = ag;
+                if ag == 0 {
+                    return false;
+                } else {
+                    self.cs.size = self.cs_nums[ag - 1];
+                    ag -= 1;
+                }
             }
         }
     }
 
     fn cs_next(&mut self, k: Option<usize>) -> bool {
-        let num_agents = self.cs.len() as i64;
-        while self.size <= num_agents {
+        while self.size <= self.cs.agent_count() {
             if self.cs_next_fixedsize(k) {
                 return true;
             }
             self.size += 1;
-            self.cs.fill(-1);
-            self.cs_nums.fill(-1);
-            self.cs_sizes.fill(0);
+            self.cs.ag_map.fill(0);
+            self.cs.co_sizes.fill(0);
+            self.cs.size = 0;
+            self.cs_nums.fill(0);
+            self.first_unvalid = 0
         }
         false
+    }
+
+    fn next(&mut self) -> Option<&CoalitionStructure<'a>> {
+        let res = if self.fixed_size { self.cs_next_fixedsize(self.cs.game.k) } else { self.cs_next(self.cs.game.k) };
+        if res { Some(&self.cs) } else { None }
     }
 }
 
 pub struct CoalitionStructures<'a> {
-    game: &'a HedonicGame,
-    cit: CoalitionStructureLendingIterator,
-    fixed_size: bool,
+    cit: CoalitionStructureLendingIterator<'a>,
 }
 
 impl<'a> CoalitionStructures<'a> {
     fn new(game: &'a HedonicGame, size: Option<usize>) -> CoalitionStructures<'a> {
-        let cit = CoalitionStructureLendingIterator::new(game.agent_count(), size);
-        let fixed_size = size.is_some();
-        CoalitionStructures { game, cit, fixed_size }
+        let cit = CoalitionStructureLendingIterator::new(game, size, size.is_some());
+        CoalitionStructures { cit }
     }
 }
 
 impl<'a> Iterator for CoalitionStructures<'a> {
     type Item = CoalitionStructure<'a>;
+
     fn next(&mut self) -> Option<Self::Item> {
-        let res = if self.fixed_size {
-            self.cit.cs_next_fixedsize(self.game.k)
-        } else {
-            self.cit.cs_next(self.game.k)
-        };
-        if res {
-            Some(CoalitionStructure::from_vec(
-                self.game,
-                self.cit.cs.iter().map(|&x| x as usize).collect(),
-            ))
-        } else {
-            None
+        match self.cit.next() {
+            Some(cs) => Some(cs.clone()),
+            None => None,
         }
     }
 }

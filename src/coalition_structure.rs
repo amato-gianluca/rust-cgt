@@ -6,8 +6,8 @@ use super::*;
 pub struct CoalitionStructure<'a> {
     pub game: &'a HedonicGame,
     pub ag_map: Vec<Coalition>,
-    co_sizes: Vec<usize>,
-    size: usize,
+    pub co_sizes: Vec<usize>,
+    pub size: usize,
 }
 
 pub struct Utility {
@@ -91,6 +91,10 @@ impl<'a> CoalitionStructure<'a> {
             co_sizes,
             "The vector co_sizes contains the size of coalitions."
         );
+        Self::new_unchecked(game, ag_map, co_sizes, size)
+    }
+
+    pub fn new_unchecked(game: &'a HedonicGame, ag_map: Vec<Coalition>, co_sizes: Vec<usize>, size: usize) -> Self {
         CoalitionStructure {
             game,
             ag_map,
@@ -190,13 +194,13 @@ impl<'a> CoalitionStructure<'a> {
         }
         let mut ut_old = 0;
         let mut ut_new = 0;
-        for i in self.agents() {
-            if self.agent_coalition(i) == co_old {
-                ut_old += self.game[(ag, i)]
-            }
-            if self.agent_coalition(i) == co_new {
-                ut_new += self.game[(ag, i)]
-            }
+        for (&w, &co) in self.game.graph.weights.iter_row(ag).zip(&self.ag_map) {
+            if co == co_old {
+                ut_old += w
+            };
+            if co == co_new {
+                ut_new += w
+            };
         }
         if !self.game.is_fractional() {
             return ut_new > ut_old;
@@ -209,8 +213,7 @@ impl<'a> CoalitionStructure<'a> {
 
     pub fn improving_deviations_for_agent(&self, ag: Agent) -> impl Iterator<Item = Coalition> {
         debug_assert!(ag < self.agent_count(), "Agent number out of range.");
-        (0..min(self.size() + 1, self.agent_count()))
-            .filter(move |&co_new| self.is_improving_deviation(ag, co_new))
+        (0..min(self.size() + 1, self.agent_count())).filter(move |&co_new| self.is_improving_deviation(ag, co_new))
     }
 
     pub fn improving_deviations(&self) -> impl Iterator<Item = (Agent, Coalition)> {
