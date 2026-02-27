@@ -5,19 +5,26 @@ use grid::*;
 use super::*;
 use super::graph_enumerator::*;
 
+/// Supported graph directionality models.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum GraphType {
+    /// Arc weights can differ by direction.
     Directed,
+    /// Edge weights are mirrored across the diagonal.
     Undirected,
 }
 
+/// Weighted graph backed by a square adjacency matrix.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Graph {
+    /// Adjacency/weight matrix.
     pub weights: Grid<Weight>,
+    /// Whether the graph is directed or undirected.
     pub graph_type: GraphType,
 }
 
 impl Graph {
+    /// Returns `true` when the matrix is square and symmetric.
     fn is_symmetric_grid(grid: &Grid<Weight>) -> bool {
         let (rows, cols) = grid.size();
         if rows != cols {
@@ -33,6 +40,7 @@ impl Graph {
         true
     }
 
+    /// Builds a graph from an adjacency matrix and explicit graph type.
     pub fn new(weights: Grid<Weight>, graph_type: GraphType) -> Self {
         debug_assert!(
             weights.rows() == weights.cols(),
@@ -48,6 +56,7 @@ impl Graph {
         }
     }
 
+    /// Builds a graph and infers its type from matrix symmetry.
     pub fn from_grid(weights: Grid<Weight>) -> Self {
         let graph_type = if Self::is_symmetric_grid(&weights) {
             GraphType::Undirected
@@ -57,6 +66,9 @@ impl Graph {
         Self::new(weights, graph_type)
     }
 
+    /// Builds a graph from an edge list.
+    ///
+    /// For undirected graphs, each edge is mirrored.
     pub fn from_edges(
         node_count: usize,
         edges: &[(usize, usize, Weight)],
@@ -77,19 +89,23 @@ impl Graph {
         Self::new(weights, graph_type)
     }
 
+    /// Number of nodes.
     pub fn node_count(&self) -> usize {
         self.weights.rows()
     }
 
+    /// Number of non-zero edges (counted once in undirected graphs).
     pub fn edge_count(&self) -> usize {
         let e = self.weights.iter().filter(|&&v| v > 0).count();
         if self.graph_type == GraphType::Directed { e } else { e / 2 }
     }
 
+    /// Iterator over node identifiers.
     pub fn nodes(&self) -> impl Iterator<Item = usize> {
         0..self.weights.rows()
     }
 
+    /// Iterator over non-zero edges as `(source, target, weight)`.
     pub fn edges(&self) -> impl Iterator<Item = (usize, usize, Weight)> {
         self.weights
             .indexed_iter()
@@ -98,18 +114,22 @@ impl Graph {
             .into_iter()
     }
 
+    /// Returns `true` if all edge weights are either `0` or `1`.
     pub fn is_simple(&self) -> bool {
         self.weights.iter().all(|&v| v <= 1)
     }
 
+    /// Returns `true` if matrix values are symmetric.
     pub fn is_symmetric(&self) -> bool {
         self.graph_type == GraphType::Undirected || Self::is_symmetric_grid(&self.weights)
     }
 
+    /// Returns `true` if graph type is directed.
     pub fn is_directed(&self) -> bool {
         self.graph_type == GraphType::Directed
     }
 
+    /// Enumerates graphs with weights in `[0, m_end]` and at least one edge of weight `m_begin..=m_end`.
     pub fn enumerate(
         node_count: usize,
         graph_type: GraphType,
@@ -119,6 +139,7 @@ impl Graph {
         GraphEnumerator::new(node_count, graph_type, m_begin, m_end, 0)
     }
 
+    /// Counts the number of graphs produced by [`Self::enumerate`].
     pub fn count(
         node_count: usize,
         graph_type: GraphType,
@@ -138,12 +159,14 @@ impl Graph {
 impl Index<(usize, usize)> for Graph {
     type Output = Weight;
 
+    /// Returns the weight at `(row, col)`.
     fn index(&self, index: (usize, usize)) -> &Self::Output {
         &self.weights[index]
     }
 }
 
 impl IndexMut<(usize, usize)> for Graph {
+    /// Returns a mutable reference to the weight at `(row, col)`.
     fn index_mut(&mut self, index: (usize, usize)) -> &mut Self::Output {
         &mut self.weights[index]
     }

@@ -2,21 +2,27 @@ use std::cmp::min;
 
 use super::*;
 
+/// Partition of game agents into coalitions.
 #[derive(Clone, Debug)]
 pub struct CoalitionStructure<'a> {
+    /// Game this coalition structure refers to.
     pub game: &'a HedonicGame,
     ag_map: Vec<Coalition>,
     co_sizes: Vec<usize>,
     size: usize,
 }
 
+/// Utility value paired with coalition size metadata.
 pub struct Utility {
+    /// Raw summed utility.
     pub ut: Weight,
+    /// Coalition size used for fractional normalization.
     pub size: usize,
     is_fractional: bool,
 }
 
 impl Utility {
+    /// Converts utility into its game-specific floating-point value.
     pub fn to_float(&self) -> f64 {
         if self.is_fractional {
             if self.size == 0 { 0.0 } else { self.ut as f64 / self.size as f64 }
@@ -27,6 +33,7 @@ impl Utility {
 }
 
 impl<'a> CoalitionStructure<'a> {
+    /// Computes coalition sizes from an agent-to-coalition map.
     fn _co_sizes(ag_map: &[Coalition]) -> Vec<usize> {
         let mut co_sizes = vec![0; ag_map.len()];
         for &c in ag_map {
@@ -35,6 +42,7 @@ impl<'a> CoalitionStructure<'a> {
         co_sizes
     }
 
+    /// Returns the number of coalitions encoded by `ag_map`.
     fn _size(ag_map: &[Coalition]) -> usize {
         match ag_map.iter().max() {
             None => 0,
@@ -42,6 +50,7 @@ impl<'a> CoalitionStructure<'a> {
         }
     }
 
+    /// Checks whether coalition ids are normalized from `0..=max`.
     fn _is_normalized(ag_map: &[Coalition]) -> bool {
         let size = Self::_size(ag_map);
         let mut seen = vec![false; size];
@@ -51,6 +60,7 @@ impl<'a> CoalitionStructure<'a> {
         seen.iter().all(|&v| v)
     }
 
+    /// Normalizes coalition ids in-place to remove gaps.
     fn _normalize_cs(ag_map: &mut Vec<usize>) {
         let mut current = 0usize;
         let mut map = vec![usize::MAX; ag_map.len()];
@@ -67,6 +77,7 @@ impl<'a> CoalitionStructure<'a> {
         }
     }
 
+    /// Creates a coalition structure and validates invariants in debug builds.
     pub fn new(
         game: &'a HedonicGame,
         ag_map: Vec<Coalition>,
@@ -99,6 +110,7 @@ impl<'a> CoalitionStructure<'a> {
         Self::new_unchecked(game, ag_map, co_sizes, size)
     }
 
+    /// Creates a coalition structure without invariant checks.
     pub fn new_unchecked(
         game: &'a HedonicGame,
         ag_map: Vec<Coalition>,
@@ -113,38 +125,46 @@ impl<'a> CoalitionStructure<'a> {
         }
     }
 
+    /// Creates a coalition structure from an agent-to-coalition vector.
     pub fn from_vec(game: &'a HedonicGame, ag_map: Vec<Agent>) -> Self {
         let co_sizes = Self::_co_sizes(&ag_map);
         let size = Self::_size(&ag_map);
         Self::new(game, ag_map, co_sizes, size)
     }
 
+    /// Number of agents.
     pub fn agent_count(&self) -> usize {
         self.ag_map.len()
     }
 
+    /// Number of coalitions.
     pub fn size(&self) -> usize {
         self.size
     }
 
+    /// Iterator over agents.
     pub fn agents(&self) -> impl Iterator<Item = Agent> {
         self.game.agents()
     }
 
+    /// Iterator over coalition identifiers.
     pub fn coalitions(&self) -> impl Iterator<Item = Coalition> {
         0..self.size()
     }
 
+    /// Coalition containing agent `ag`.
     pub fn agent_coalition(&self, ag: Agent) -> Coalition {
         debug_assert!(ag < self.agent_count(), "Agent number out of range.");
         self.ag_map[ag]
     }
 
+    /// Size of coalition `co`.
     pub fn coalition_size(&self, co: Coalition) -> usize {
         debug_assert!(co <= self.size(), "Coalition number out of range.");
         self.co_sizes[co]
     }
 
+    /// Utility of agent `ag` if placed in coalition `co`.
     pub fn coalition_agent_utility(&self, co: Coalition, ag: Agent) -> Utility {
         debug_assert!(ag < self.agent_count(), "Agent number out of range.");
         debug_assert!(co < self.size(), "Coalition number out of range.");
@@ -161,10 +181,12 @@ impl<'a> CoalitionStructure<'a> {
         }
     }
 
+    /// Utility of agent `ag` in its current coalition.
     pub fn agent_utility(&self, ag: Agent) -> Utility {
         self.coalition_agent_utility(self.agent_coalition(ag), ag)
     }
 
+    /// Social welfare contributed by coalition `co`.
     pub fn coalition_social_welfare(&self, co: Coalition) -> Utility {
         debug_assert!(co < self.size(), "Coalition number out of range.");
         let mut ut = 0;
@@ -184,12 +206,14 @@ impl<'a> CoalitionStructure<'a> {
         }
     }
 
+    /// Total social welfare of the coalition structure.
     pub fn social_welfare(&self) -> f64 {
         self.coalitions()
             .map(|co| self.coalition_social_welfare(co).to_float())
             .sum()
     }
 
+    /// Returns whether moving `ag` to `co_new` is a strict improving deviation.
     pub fn is_improving_deviation(&self, ag: Agent, co_new: Coalition) -> bool {
         debug_assert!(ag < self.agent_count(), "Agent number out of range.");
         debug_assert!(co_new <= self.size(), "Coalition number out of range.");
@@ -222,12 +246,14 @@ impl<'a> CoalitionStructure<'a> {
             > ut_old * (self.coalition_size(co_new) as Weight + 1)
     }
 
+    /// Iterates over coalitions that are improving deviations for `ag`.
     pub fn improving_deviations_for_agent(&self, ag: Agent) -> impl Iterator<Item = Coalition> {
         debug_assert!(ag < self.agent_count(), "Agent number out of range.");
         (0..min(self.size() + 1, self.agent_count()))
             .filter(move |&co_new| self.is_improving_deviation(ag, co_new))
     }
 
+    /// Iterates over all improving deviations as `(agent, target_coalition)`.
     pub fn improving_deviations(&self) -> impl Iterator<Item = (Agent, Coalition)> {
         self.agents().flat_map(|ag| {
             self.improving_deviations_for_agent(ag)
@@ -235,10 +261,12 @@ impl<'a> CoalitionStructure<'a> {
         })
     }
 
+    /// Returns whether any improving deviation exists.
     pub fn has_improving_deviation(&self) -> bool {
         self.improving_deviations().next().is_some()
     }
 
+    /// Returns a new coalition structure after moving `ag` to `co_new`.
     pub fn move_to(&self, ag: Agent, co_new: Coalition) -> CoalitionStructure<'a> {
         debug_assert!(ag < self.agent_count(), "Agent number out of range.");
         debug_assert!(co_new <= self.size(), "Coalition number out of range.");
@@ -259,6 +287,7 @@ impl<'a> CoalitionStructure<'a> {
         CoalitionStructure::from_vec(self.game, ag_map_new)
     }
 
+    /// Returns the partition as a vector of coalition member lists.
     pub fn to_list(&self) -> Vec<Vec<usize>> {
         let mut res = vec![Vec::new(); self.size()];
         for ag in self.agents() {
@@ -275,10 +304,10 @@ impl<'a> PartialEq for CoalitionStructure<'a> {
     }
 }
 
-/// We enumerate over coalition structures using this struct which is both a standard iterator and
-/// a lending iterator. The latter returns a reference to an internal coalition structure, and does
-/// not need to coninuosly allocate new vectors.
+/// Iterator over coalition structures.
 ///
+/// It supports both standard iteration (owned items) and lending iteration through
+/// [`Self::next_lending`] to avoid repeated allocations.
 /// We do not need the iterator to modifiy an external structure like for GameEnumeratotState since
 /// a CoalitionStructure is never embedded into something else, while a Graph is embedded within an
 /// HedonicGame object.
@@ -291,6 +320,9 @@ pub struct CoalitionStructures<'a> {
 }
 
 impl<'a> CoalitionStructures<'a> {
+    /// Creates a coalition-structure iterator.
+    ///
+    /// If `size` is `Some(k)`, only structures with exactly `k` coalitions are generated.
     pub fn new(game: &'a HedonicGame, size: Option<usize>) -> CoalitionStructures<'a> {
         let cs = CoalitionStructure::new_unchecked(
             game,
@@ -307,6 +339,7 @@ impl<'a> CoalitionStructures<'a> {
         }
     }
 
+    /// Advances to the next structure with fixed coalition count.
     fn cs_next_fixedsize(&mut self) -> bool {
         let agent_count = self.cs.agent_count();
         let mut ag = std::cmp::min(self.first_unvalid, agent_count - 1);
@@ -356,6 +389,7 @@ impl<'a> CoalitionStructures<'a> {
         }
     }
 
+    /// Advances to the next structure with variable coalition count.
     pub fn cs_next(&mut self) -> bool {
         while self.size <= self.cs.agent_count() {
             if self.cs_next_fixedsize() {
@@ -371,6 +405,7 @@ impl<'a> CoalitionStructures<'a> {
         false
     }
 
+    /// Returns a reference to the next generated structure, reusing internal storage.
     pub fn next_lending(&mut self) -> Option<&CoalitionStructure<'a>> {
         let res = if self.fixed_size { self.cs_next_fixedsize() } else { self.cs_next() };
         if res { Some(&self.cs) } else { None }
@@ -380,6 +415,7 @@ impl<'a> CoalitionStructures<'a> {
 impl<'a> Iterator for CoalitionStructures<'a> {
     type Item = CoalitionStructure<'a>;
 
+    /// Returns an owned clone of the next coalition structure.
     fn next(&mut self) -> Option<Self::Item> {
         match self.next_lending() {
             Some(cs) => Some(cs.clone()),

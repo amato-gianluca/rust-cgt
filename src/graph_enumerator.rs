@@ -1,13 +1,14 @@
 use super::*;
 use grid::*;
 
-/// This is a low-level graph enumerator which changes an external graph. We cannot
-/// put the graph's reference inside the enumerator, since this would make impossible
+/// Low-level backtracking state used to enumerate weighted graphs in-place.
+///
+/// The state mutates an external [`Graph`] reference to avoid repeated allocations.
+/// We cannot put the graph's reference inside the enumerator, since this would make impossible
 /// to define the GraphEnumerator structl later, hence we provide each time the
 /// external graph as a parameter of the external mathod.
 ///
 /// Actually, the performance increase we get with all these intricacies is negligible.
-///
 #[derive(Debug, Clone)]
 pub(crate) struct GraphEnumeratorState {
     first_unvalid: usize,
@@ -18,6 +19,7 @@ pub(crate) struct GraphEnumeratorState {
 }
 
 impl GraphEnumeratorState {
+    /// Creates a new enumeration state.
     pub(crate) fn new(graoh: &Graph, m_begin: Weight, m_end: Weight, debug: usize) -> Self {
         let n = graoh.node_count();
         if debug > 0 {
@@ -35,6 +37,9 @@ impl GraphEnumeratorState {
         }
     }
 
+    /// Advances the provided graph to the next valid instance.
+    ///
+    /// Returns `true` when a new graph was produced, `false` when enumeration is exhausted.
     pub(crate) fn next_graph(&mut self, graph: &mut Graph) -> bool {
         fn next_pos(row: usize, col: usize, n: usize) -> (usize, usize) {
             if col < n - 1 { (row, col + 1) } else { (row + 1, 0) }
@@ -151,12 +156,14 @@ impl GraphEnumeratorState {
     }
 }
 
+/// Owning iterator over weighted graphs with bounded edge values.
 pub struct GraphEnumerator {
     graph: Graph,
     state: GraphEnumeratorState,
 }
 
 impl GraphEnumerator {
+    /// Creates a new graph iterator.
     pub(crate) fn new(
         node_count: usize,
         graph_type: GraphType,
@@ -173,6 +180,7 @@ impl GraphEnumerator {
 impl Iterator for GraphEnumerator {
     type Item = Graph;
 
+    /// Returns the next graph in the sequence.
     fn next(&mut self) -> Option<Self::Item> {
         if self.state.next_graph(&mut self.graph) {
             Some(self.graph.clone())

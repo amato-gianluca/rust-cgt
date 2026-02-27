@@ -8,22 +8,30 @@ use super::coalition_structure::CoalitionStructures;
 use super::graph_enumerator::*;
 use super::*;
 
+/// Utility aggregation model for coalition valuation.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum GameType {
+    /// Agent utility is the sum of outgoing weights to coalition members.
     Additive,
+    /// Agent utility is averaged by coalition size.
     Fractional,
 }
 
 use GameType::*;
 
+/// Hedonic game induced by an interaction graph and optional coalition-size cap.
 #[derive(Debug, Clone)]
 pub struct HedonicGame {
+    /// Underlying weighted graph of agent valuations.
     pub graph: Graph,
+    /// Optional upper bound on coalition size.
     pub k: Option<usize>,
+    /// Utility model used by agents.
     pub game_type: GameType,
 }
 
 impl HedonicGame {
+    /// Creates a game from a graph, optional coalition bound, and utility model.
     pub fn new(graph: Graph, k: Option<usize>, game_type: GameType) -> Self {
         HedonicGame {
             graph,
@@ -32,46 +40,57 @@ impl HedonicGame {
         }
     }
 
+    /// Creates a game directly from a weight matrix.
     pub fn from_grid(grid: Grid<Weight>, k: Option<usize>, game_type: GameType) -> Self {
         Self::new(Graph::from_grid(grid), k, game_type)
     }
 
+    /// Returns the valuation matrix.
     pub fn valuations(&self) -> &Grid<Weight> {
         &self.graph.weights
     }
 
+    /// Returns whether the valuation matrix is symmetric.
     pub fn is_symmetric(&self) -> bool {
         self.graph.is_symmetric()
     }
 
+    /// Returns whether valuations are directed.
     pub fn is_directed(&self) -> bool {
         self.graph.is_directed()
     }
 
+    /// Returns whether valuations are binary (`0` or `1`).
     pub fn is_simple(&self) -> bool {
         self.graph.is_simple()
     }
 
+    /// Returns whether utilities are fractional.
     pub fn is_fractional(&self) -> bool {
         self.game_type == Fractional
     }
 
+    /// Number of agents in the game.
     pub fn agent_count(&self) -> usize {
         self.graph.node_count()
     }
 
+    /// Iterator over agent identifiers.
     pub fn agents(&self) -> impl Iterator<Item = usize> {
         self.graph.nodes()
     }
 
+    /// Builds a coalition structure from an agent-to-coalition map.
     pub fn coalition_structure<'a>(&'a self, cs: Vec<usize>) -> CoalitionStructure<'a> {
         CoalitionStructure::from_vec(self, cs)
     }
 
+    /// Returns the partition where each agent is isolated.
     pub fn isolated_coalition_structure<'a>(&'a self) -> CoalitionStructure<'a> {
         self.coalition_structure(self.agents().collect())
     }
 
+    /// Returns the grand coalition if it respects the optional size bound.
     pub fn big_coalition_structure<'a>(&'a self) -> Option<CoalitionStructure<'a>> {
         if let Some(k) = self.k {
             if k < self.agent_count() {
@@ -82,10 +101,12 @@ impl HedonicGame {
         Some(self.coalition_structure(cs))
     }
 
+    /// Enumerates coalition structures, optionally fixing the number of coalitions.
     pub fn coalition_structures<'a>(&'a self, size: Option<usize>) -> CoalitionStructures<'a> {
         CoalitionStructures::new(self, size)
     }
 
+    /// Iterates over Nash-stable coalition structures.
     pub fn nash_stable_coalition_structures<'a>(
         &'a self,
     ) -> impl Iterator<Item = CoalitionStructure<'a>> {
@@ -93,6 +114,7 @@ impl HedonicGame {
             .filter(|cs| !cs.has_improving_deviation())
     }
 
+    /// Returns whether at least one Nash-stable coalition structure exists.
     pub fn has_nash_stable_coalition_structure(&self) -> bool {
         let mut cit = CoalitionStructures::new(self, None);
         while let Some(cs) = cit.next_lending() {
@@ -103,6 +125,7 @@ impl HedonicGame {
         false
     }
 
+    /// Enumerates all games induced by graphs in the given weight range.
     pub fn enumerate(
         agent_count: usize,
         graph_type: GraphType,
@@ -114,6 +137,7 @@ impl HedonicGame {
         Enumerate::new(agent_count, graph_type, m_begin, m_end, game_type, k)
     }
 
+    /// Enumerates only unstable games (without Nash-stable coalition structures).
     pub fn enumerate_unstable(
         agent_count: usize,
         graph_type: GraphType,
@@ -125,6 +149,7 @@ impl HedonicGame {
         EnumerateUnstable::new(agent_count, graph_type, m_begin, m_end, game_type, k)
     }
 
+    /// Counts all games induced by the graph enumeration parameters.
     pub fn count(
         agent_count: usize,
         graph_type: GraphType,
@@ -134,6 +159,7 @@ impl HedonicGame {
         Graph::count(agent_count, graph_type, m_begin, m_end)
     }
 
+    /// Counts unstable and total games, and optionally returns the first unstable witness.
     pub fn count_unstable(
         agent_count: usize,
         graph_type: GraphType,
@@ -197,23 +223,27 @@ impl HedonicGame {
 impl Index<(usize, usize)> for HedonicGame {
     type Output = Weight;
 
+    /// Returns valuation from `i` to `j`.
     fn index(&self, index: (usize, usize)) -> &Self::Output {
         &self.graph[index]
     }
 }
 
 impl IndexMut<(usize, usize)> for HedonicGame {
+    /// Returns mutable valuation from `i` to `j`.
     fn index_mut(&mut self, index: (usize, usize)) -> &mut Self::Output {
         &mut self.graph[index]
     }
 }
 
+/// Iterator over all games matching a set of graph-generation parameters.
 pub struct Enumerate {
     game: HedonicGame,
     state: GraphEnumeratorState,
 }
 
 impl Enumerate {
+    /// Creates a game iterator.
     pub fn new(
         agent_count: usize,
         graph_type: GraphType,
@@ -232,6 +262,7 @@ impl Enumerate {
 impl Iterator for Enumerate {
     type Item = HedonicGame;
 
+    /// Returns the next generated game.
     fn next(&mut self) -> Option<Self::Item> {
         if self.state.next_graph(&mut self.game.graph) {
             Some(self.game.clone())
@@ -241,12 +272,14 @@ impl Iterator for Enumerate {
     }
 }
 
+/// Iterator over only unstable games for a set of graph-generation parameters.
 pub struct EnumerateUnstable {
     game: HedonicGame,
     state: GraphEnumeratorState,
 }
 
 impl EnumerateUnstable {
+    /// Creates an unstable-game iterator.
     pub fn new(
         agent_count: usize,
         graph_type: GraphType,
@@ -265,6 +298,7 @@ impl EnumerateUnstable {
 impl Iterator for EnumerateUnstable {
     type Item = HedonicGame;
 
+    /// Returns the next generated unstable game.
     fn next(&mut self) -> Option<Self::Item> {
         while self.state.next_graph(&mut self.game.graph) {
             if !self.game.has_nash_stable_coalition_structure() {
