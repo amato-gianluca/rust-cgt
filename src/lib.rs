@@ -1,5 +1,6 @@
 mod types;
 mod graph;
+mod graph_enumerator;
 mod game;
 mod coalition_structure;
 

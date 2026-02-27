@@ -1,9 +1,9 @@
-use std::cmp::{max, min};
 use std::ops::{Index, IndexMut};
 
 use grid::*;
 
 use super::*;
+use super::graph_enumerator::*;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum GraphType {
@@ -115,8 +115,8 @@ impl Graph {
         graph_type: GraphType,
         m_begin: Weight,
         m_end: Weight,
-    ) -> Enumerate {
-        Enumerate::new(node_count, graph_type, m_begin, m_end, 0)
+    ) -> GraphEnumerator {
+        GraphEnumerator::new(node_count, graph_type, m_begin, m_end, 0)
     }
 
     pub fn count(
@@ -125,7 +125,13 @@ impl Graph {
         m_begin: Weight,
         m_end: Weight,
     ) -> usize {
-        Enumerate::new(node_count, graph_type, m_begin, m_end, 0).count()
+        let mut graph = Graph::new(Grid::<Weight>::new(node_count, node_count), graph_type);
+        let mut state = GraphEnumeratorState::new(&graph, m_begin, m_end, 0);
+        let mut count = 0;
+        while state.next_graph(&mut graph) {
+            count += 1;
+        }
+        count
     }
 }
 
@@ -140,157 +146,6 @@ impl Index<(usize, usize)> for Graph {
 impl IndexMut<(usize, usize)> for Graph {
     fn index_mut(&mut self, index: (usize, usize)) -> &mut Self::Output {
         &mut self.weights[index]
-    }
-}
-
-#[derive(Debug)]
-pub struct Enumerate {
-    weights: Grid<Weight>,
-    graph_type: GraphType,
-    first_unvalid: usize,
-    m_max: Weight,
-    m_reached: Option<usize>,
-    m_end: Weight,
-    debug: usize,
-}
-
-impl Enumerate {
-    fn new(n: usize, graph_type: GraphType, m_begin: Weight, m_end: Weight, debug: usize) -> Self {
-        let weights = Grid::init(n, n, 0);
-        if debug > 0 {
-            println!("sought_reward: {}", m_begin);
-            for col in 1..=min(debug, n) {
-                println!("{}[{}] v: 0", "  ".repeat(col), col);
-            }
-        }
-        Self {
-            weights,
-            graph_type,
-            first_unvalid: n * n - 1,
-            m_max: m_begin,
-            m_reached: None,
-            m_end: m_end,
-            debug: debug,
-        }
-    }
-}
-
-impl Iterator for Enumerate {
-    type Item = Graph;
-
-    fn next(&mut self) -> Option<Graph> {
-        fn next_pos(row: usize, col: usize, n: usize) -> (usize, usize) {
-            if col < n - 1 { (row, col + 1) } else { (row + 1, 0) }
-        }
-        fn prev_pos(row: usize, col: usize, n: usize) -> (usize, usize) {
-            if col > 0 { (row, col - 1) } else { (row - 1, n - 1) }
-        }
-
-        let n = self.weights.rows();
-        let pos_final = n * n - 1;
-        let mut pos = pos_final;
-        let mut row = n - 1;
-        let mut col = n - 1;
-        while self.m_max <= self.m_end {
-            loop {
-                let bot = if self.graph_type == GraphType::Undirected && row > col {
-                    self.weights[(col, row)]
-                } else if row == 0 && col > 0 {
-                    self.weights[(row, col - 1)]
-                } else if row > 0 && row != col {
-                    self.weights[(0, 1)]
-                } else {
-                    0
-                };
-                let top = if row == col {
-                    0
-                } else if self.graph_type == GraphType::Undirected && row > col {
-                    self.weights[(col, row)]
-                } else {
-                    self.m_max
-                };
-
-                let v_new = if pos < self.first_unvalid {
-                    max(self.weights[(row, col)] + 1, bot)
-                } else {
-                    bot
-                };
-                self.first_unvalid = pos + 1;
-
-                if v_new <= top {
-                    self.weights[(row, col)] = v_new;
-
-                    let mut is_invalid_graph = false;
-                    if row > 0 && col == n - 1 {
-                        for i in 0..row {
-                            if i + 2 == row {
-                                continue;
-                            }
-                            for j in 0..n {
-                                if j == i || j == row {
-                                    continue;
-                                }
-                                if self.weights[(i, j)] == self.weights[(row, j)] {
-                                    continue;
-                                }
-                                if self.weights[(i, j)] > self.weights[(row, j)] {
-                                    is_invalid_graph = true;
-                                }
-                                break;
-                            }
-                            if is_invalid_graph {
-                                break;
-                            }
-                        }
-                    }
-
-                    if !is_invalid_graph {
-                        if self.debug > 0 && row == 0 && col > 0 && col <= self.debug {
-                            println!("{}[{}] v: {}", "  ".repeat(col), col, v_new);
-                        }
-                        if v_new == self.m_max && self.m_reached.is_none() {
-                            self.m_reached = Some(pos);
-                        }
-                        if pos == pos_final {
-                            if self.m_reached.is_some() {
-                                return Some(Graph::new(self.weights.clone(), self.graph_type));
-                            }
-                        } else {
-                            let (nr, nc) = next_pos(row, col, n);
-                            row = nr;
-                            col = nc;
-                            pos += 1;
-                        }
-                    }
-                } else {
-                    if self.m_reached == Some(pos) {
-                        self.m_reached = None
-                    }
-                    if row == 0 && col == 0 {
-                        break;
-                    }
-                    let (pr, pc) = prev_pos(row, col, n);
-                    row = pr;
-                    col = pc;
-                    self.first_unvalid = pos;
-                    pos -= 1;
-                }
-
-                if row >= n {
-                    break;
-                }
-            }
-
-            self.m_max += 1;
-            if self.debug > 0 && self.m_max <= self.m_end {
-                println!("sought_reward: {}", self.m_max);
-            }
-            row = 0;
-            col = 0;
-            pos = 0;
-            self.first_unvalid = 0;
-        }
-        None
     }
 }
 

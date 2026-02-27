@@ -4,9 +4,9 @@ use std::usize;
 
 use grid::*;
 
-use super::coalition_structure::*;
-use super::graph::*;
-use super::types::*;
+use super::coalition_structure::CoalitionStructures;
+use super::graph_enumerator::*;
+use super::*;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum GameType {
@@ -16,7 +16,7 @@ pub enum GameType {
 
 use GameType::*;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct HedonicGame {
     pub graph: Graph,
     pub k: Option<usize>,
@@ -25,7 +25,11 @@ pub struct HedonicGame {
 
 impl HedonicGame {
     pub fn new(graph: Graph, k: Option<usize>, game_type: GameType) -> Self {
-        HedonicGame { graph, k, game_type }
+        HedonicGame {
+            graph,
+            k,
+            game_type,
+        }
     }
 
     pub fn from_grid(grid: Grid<Weight>, k: Option<usize>, game_type: GameType) -> Self {
@@ -82,7 +86,9 @@ impl HedonicGame {
         CoalitionStructures::new(self, size)
     }
 
-    pub fn nash_stable_coalition_structures<'a>(&'a self) -> impl Iterator<Item = CoalitionStructure<'a>> {
+    pub fn nash_stable_coalition_structures<'a>(
+        &'a self,
+    ) -> impl Iterator<Item = CoalitionStructure<'a>> {
         self.coalition_structures(None)
             .filter(|cs| !cs.has_improving_deviation())
     }
@@ -90,8 +96,8 @@ impl HedonicGame {
     pub fn has_nash_stable_coalition_structure(&self) -> bool {
         let mut cit = CoalitionStructures::new(self, None);
         while let Some(cs) = cit.next_lending() {
-            if ! cs.has_improving_deviation() {
-                return true
+            if !cs.has_improving_deviation() {
+                return true;
             }
         }
         false
@@ -105,8 +111,7 @@ impl HedonicGame {
         game_type: GameType,
         k: Option<usize>,
     ) -> impl Iterator<Item = HedonicGame> {
-        Graph::enumerate(agent_count, graph_type, m_begin, m_end)
-            .map(move |g| Self::new(g, k, game_type))
+        Enumerate::new(agent_count, graph_type, m_begin, m_end, game_type, k)
     }
 
     pub fn enumerate_unstable(
@@ -117,11 +122,15 @@ impl HedonicGame {
         game_type: GameType,
         k: Option<usize>,
     ) -> impl Iterator<Item = HedonicGame> {
-        Self::enumerate(agent_count, graph_type, m_begin, m_end, game_type, k)
-            .filter(|g| !g.has_nash_stable_coalition_structure())
+        EnumerateUnstable::new(agent_count, graph_type, m_begin, m_end, game_type, k)
     }
 
-    pub fn count(agent_count: usize, graph_type: GraphType, m_begin: Weight, m_end: Weight) -> usize {
+    pub fn count(
+        agent_count: usize,
+        graph_type: GraphType,
+        m_begin: Weight,
+        m_end: Weight,
+    ) -> usize {
         Graph::count(agent_count, graph_type, m_begin, m_end)
     }
 
@@ -136,12 +145,15 @@ impl HedonicGame {
         let mut count_total = 0;
         let mut count_unstable = 0;
         let mut result = None;
-        for game in Self::enumerate(agent_count, graph_type, m_begin, m_end, game_type, k) {
+        let graph = Graph::new(Grid::<Weight>::new(agent_count, agent_count), graph_type);
+        let mut game = HedonicGame::new(graph, k, game_type);
+        let mut state = GraphEnumeratorState::new(&game.graph, m_begin, m_end, 0);
+        while state.next_graph(&mut game.graph) {
             count_total += 1;
             if !game.has_nash_stable_coalition_structure() {
                 count_unstable += 1;
                 if result.is_none() {
-                    result = Some(game);
+                    result = Some(game.clone());
                 }
             }
         }
@@ -193,6 +205,73 @@ impl Index<(usize, usize)> for HedonicGame {
 impl IndexMut<(usize, usize)> for HedonicGame {
     fn index_mut(&mut self, index: (usize, usize)) -> &mut Self::Output {
         &mut self.graph[index]
+    }
+}
+
+pub struct Enumerate {
+    game: HedonicGame,
+    state: GraphEnumeratorState,
+}
+
+impl Enumerate {
+    pub fn new(
+        agent_count: usize,
+        graph_type: GraphType,
+        m_begin: Weight,
+        m_end: Weight,
+        game_type: GameType,
+        k: Option<usize>,
+    ) -> Self {
+        let graph = Graph::new(Grid::<Weight>::new(agent_count, agent_count), graph_type);
+        let game = HedonicGame::new(graph, k, game_type);
+        let state = GraphEnumeratorState::new(&game.graph, m_begin, m_end, 0);
+        Self { game, state }
+    }
+}
+
+impl Iterator for Enumerate {
+    type Item = HedonicGame;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.state.next_graph(&mut self.game.graph) {
+            Some(self.game.clone())
+        } else {
+            None
+        }
+    }
+}
+
+pub struct EnumerateUnstable {
+    game: HedonicGame,
+    state: GraphEnumeratorState,
+}
+
+impl EnumerateUnstable {
+    pub fn new(
+        agent_count: usize,
+        graph_type: GraphType,
+        m_begin: Weight,
+        m_end: Weight,
+        game_type: GameType,
+        k: Option<usize>,
+    ) -> Self {
+        let graph = Graph::new(Grid::<Weight>::new(agent_count, agent_count), graph_type);
+        let game = HedonicGame::new(graph, k, game_type);
+        let state = GraphEnumeratorState::new(&game.graph, m_begin, m_end, 0);
+        Self { game, state }
+    }
+}
+
+impl Iterator for EnumerateUnstable {
+    type Item = HedonicGame;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while self.state.next_graph(&mut self.game.graph) {
+            if !self.game.has_nash_stable_coalition_structure() {
+                return Some(self.game.clone());
+            }
+        }
+        None
     }
 }
 
@@ -330,8 +409,10 @@ mod globals {
 mod tests {
     use super::*;
 
-    static GRAPH1: LazyLock<Graph> = LazyLock::new(|| Graph::from_grid(grid![[0,0,2][1,0,3][2,0,0]]));
-    static GAME1_FRAC: LazyLock<HedonicGame> = LazyLock::new(|| HedonicGame::new(GRAPH1.clone(), None, Fractional));
+    static GRAPH1: LazyLock<Graph> =
+        LazyLock::new(|| Graph::from_grid(grid![[0,0,2][1,0,3][2,0,0]]));
+    static GAME1_FRAC: LazyLock<HedonicGame> =
+        LazyLock::new(|| HedonicGame::new(GRAPH1.clone(), None, Fractional));
     static GAME1_FRAC_K1: LazyLock<HedonicGame> =
         LazyLock::new(|| HedonicGame::new(GRAPH1.clone(), Some(1), Fractional));
     static GAME1_FRAC_K2: LazyLock<HedonicGame> =
@@ -360,7 +441,11 @@ mod tests {
             vec![vec![0, 0, 0]],
         );
 
-        compare_coalition_structures(&GAME1_FRAC_K2, GAME1_FRAC_K2.coalition_structures(Some(1)), vec![]);
+        compare_coalition_structures(
+            &GAME1_FRAC_K2,
+            GAME1_FRAC_K2.coalition_structures(Some(1)),
+            vec![],
+        );
 
         compare_coalition_structures(
             &GAME1_FRAC,
@@ -475,8 +560,14 @@ mod tests {
 
     #[test]
     fn test_count_unstable_games() {
-        let (count_unstable, count_total, _) =
-            HedonicGame::count_unstable(6, GraphType::Undirected, 2, 2, GameType::Fractional, Some(4));
+        let (count_unstable, count_total, _) = HedonicGame::count_unstable(
+            6,
+            GraphType::Undirected,
+            2,
+            2,
+            GameType::Fractional,
+            Some(4),
+        );
         assert_eq!(count_unstable, 9);
         assert_eq!(count_total, 66515);
         //let weights = vec![0, 1, 4, 7, 9];
@@ -543,7 +634,14 @@ mod tests {
 
     #[test]
     fn test_graph_to_from_weights() {
-        let edges = vec![(0, 1, 9), (0, 2, 9), (0, 3, 4), (1, 2, 1), (1, 3, 7), (2, 3, 7)];
+        let edges = vec![
+            (0, 1, 9),
+            (0, 2, 9),
+            (0, 3, 4),
+            (1, 2, 1),
+            (1, 3, 7),
+            (2, 3, 7),
+        ];
         let graph = Graph::from_edges(4, &edges, GraphType::Undirected);
         assert_eq!(globals::GAME_K3_NOEQUILIBRIUM_PAPER.graph, graph);
     }

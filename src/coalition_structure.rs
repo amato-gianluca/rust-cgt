@@ -67,7 +67,12 @@ impl<'a> CoalitionStructure<'a> {
         }
     }
 
-    pub fn new(game: &'a HedonicGame, ag_map: Vec<Coalition>, co_sizes: Vec<usize>, size: usize) -> Self {
+    pub fn new(
+        game: &'a HedonicGame,
+        ag_map: Vec<Coalition>,
+        co_sizes: Vec<usize>,
+        size: usize,
+    ) -> Self {
         debug_assert_eq!(
             ag_map.len(),
             game.agent_count(),
@@ -94,7 +99,12 @@ impl<'a> CoalitionStructure<'a> {
         Self::new_unchecked(game, ag_map, co_sizes, size)
     }
 
-    pub fn new_unchecked(game: &'a HedonicGame, ag_map: Vec<Coalition>, co_sizes: Vec<usize>, size: usize) -> Self {
+    pub fn new_unchecked(
+        game: &'a HedonicGame,
+        ag_map: Vec<Coalition>,
+        co_sizes: Vec<usize>,
+        size: usize,
+    ) -> Self {
         CoalitionStructure {
             game,
             ag_map,
@@ -208,17 +218,21 @@ impl<'a> CoalitionStructure<'a> {
         if ut_old == 0 && ut_new == 0 {
             return self.coalition_size(co_new) + 1 < self.coalition_size(co_old);
         }
-        ut_new * self.coalition_size(co_old) as Weight > ut_old * (self.coalition_size(co_new) as Weight + 1)
+        ut_new * self.coalition_size(co_old) as Weight
+            > ut_old * (self.coalition_size(co_new) as Weight + 1)
     }
 
     pub fn improving_deviations_for_agent(&self, ag: Agent) -> impl Iterator<Item = Coalition> {
         debug_assert!(ag < self.agent_count(), "Agent number out of range.");
-        (0..min(self.size() + 1, self.agent_count())).filter(move |&co_new| self.is_improving_deviation(ag, co_new))
+        (0..min(self.size() + 1, self.agent_count()))
+            .filter(move |&co_new| self.is_improving_deviation(ag, co_new))
     }
 
     pub fn improving_deviations(&self) -> impl Iterator<Item = (Agent, Coalition)> {
-        self.agents()
-            .flat_map(|ag| self.improving_deviations_for_agent(ag).map(move |co| (ag, co)))
+        self.agents().flat_map(|ag| {
+            self.improving_deviations_for_agent(ag)
+                .map(move |co| (ag, co))
+        })
     }
 
     pub fn has_improving_deviation(&self) -> bool {
@@ -261,6 +275,13 @@ impl<'a> PartialEq for CoalitionStructure<'a> {
     }
 }
 
+/// We enumerate over coalition structures using this struct which is both a standard iterator and
+/// a lending iterator. The latter returns a reference to an internal coalition structure, and does
+/// not need to coninuosly allocate new vectors.
+///
+/// We do not need the iterator to modifiy an external structure like for GameEnumeratotState since
+/// a CoalitionStructure is never embedded into something else, while a Graph is embedded within an
+/// HedonicGame object.
 pub struct CoalitionStructures<'a> {
     cs: CoalitionStructure<'a>,
     cs_nums: Vec<usize>,
@@ -271,7 +292,12 @@ pub struct CoalitionStructures<'a> {
 
 impl<'a> CoalitionStructures<'a> {
     pub fn new(game: &'a HedonicGame, size: Option<usize>) -> CoalitionStructures<'a> {
-        let cs = CoalitionStructure::new_unchecked(game, vec![0; game.agent_count()], vec![0; game.agent_count()], 1);
+        let cs = CoalitionStructure::new_unchecked(
+            game,
+            vec![0; game.agent_count()],
+            vec![0; game.agent_count()],
+            1,
+        );
         CoalitionStructures {
             cs,
             cs_nums: vec![0; game.agent_count() + 1],
@@ -290,7 +316,11 @@ impl<'a> CoalitionStructures<'a> {
             }
             let coalitions_potential = self.cs_nums[ag] + (agent_count - ag);
             let bot = if coalitions_potential > self.size { 0 } else { self.cs_nums[ag] };
-            let top = if self.cs_nums[ag] < self.size { self.cs_nums[ag] } else { self.cs_nums[ag] - 1 };
+            let top = if self.cs_nums[ag] < self.size {
+                self.cs_nums[ag]
+            } else {
+                self.cs_nums[ag] - 1
+            };
             let mut co_new = if ag < self.first_unvalid {
                 let co = self.cs.ag_map[ag];
                 self.cs.co_sizes[co] -= 1;
@@ -365,13 +395,16 @@ mod tests {
     use grid::*;
     use std::sync::LazyLock;
 
-    static GRAPH1: LazyLock<Graph> = LazyLock::new(|| Graph::from_grid(grid![[0,0,2][1,0,3][2,0,0]]));
-    static GAME1_FRAC: LazyLock<HedonicGame> = LazyLock::new(|| HedonicGame::new(GRAPH1.clone(), None, Fractional));
+    static GRAPH1: LazyLock<Graph> =
+        LazyLock::new(|| Graph::from_grid(grid![[0,0,2][1,0,3][2,0,0]]));
+    static GAME1_FRAC: LazyLock<HedonicGame> =
+        LazyLock::new(|| HedonicGame::new(GRAPH1.clone(), None, Fractional));
     static GAME1_FRAC_CS1: LazyLock<CoalitionStructure> =
         LazyLock::new(|| CoalitionStructure::from_vec(&GAME1_FRAC, vec![0, 1, 0]));
     static GAME1_FRAC_CS2: LazyLock<CoalitionStructure> =
         LazyLock::new(|| CoalitionStructure::from_vec(&GAME1_FRAC, vec![0, 0, 0]));
-    static GAME1_NOFRAC: LazyLock<HedonicGame> = LazyLock::new(|| HedonicGame::new(GRAPH1.clone(), None, Additive));
+    static GAME1_NOFRAC: LazyLock<HedonicGame> =
+        LazyLock::new(|| HedonicGame::new(GRAPH1.clone(), None, Additive));
     static GAME1_NOFRAC_CS1: LazyLock<CoalitionStructure> =
         LazyLock::new(|| CoalitionStructure::from_vec(&GAME1_NOFRAC, vec![0, 1, 0]));
 
@@ -424,10 +457,19 @@ mod tests {
     #[test]
     fn test_move_to() {
         let csa = GAME1_FRAC_CS1.move_to(2, 2);
-        assert_eq!(csa, CoalitionStructure::from_vec(&GAME1_FRAC, vec![0, 1, 2]));
+        assert_eq!(
+            csa,
+            CoalitionStructure::from_vec(&GAME1_FRAC, vec![0, 1, 2])
+        );
         let csa = csa.move_to(0, 2);
-        assert_eq!(csa, CoalitionStructure::from_vec(&GAME1_FRAC, vec![0, 1, 0]));
+        assert_eq!(
+            csa,
+            CoalitionStructure::from_vec(&GAME1_FRAC, vec![0, 1, 0])
+        );
         let csa = csa.move_to(2, 1);
-        assert_eq!(csa, CoalitionStructure::from_vec(&GAME1_FRAC, vec![0, 1, 1]));
+        assert_eq!(
+            csa,
+            CoalitionStructure::from_vec(&GAME1_FRAC, vec![0, 1, 1])
+        );
     }
 }
