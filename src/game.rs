@@ -89,16 +89,12 @@ impl HedonicGame {
 
     pub fn has_nash_stable_coalition_structure(&self) -> bool {
         let mut cit = CoalitionStructures::new(self, None);
-        loop {
-            match cit.next_lending() {
-                Some(cs) => {
-                    if !cs.has_improving_deviation() {
-                        return true;
-                    }
-                }
-                None => return false,
+        while let Some(cs) = cit.next_lending() {
+            if ! cs.has_improving_deviation() {
+                return true
             }
         }
+        false
     }
 
     pub fn enumerate(
@@ -109,11 +105,11 @@ impl HedonicGame {
         game_type: GameType,
         k: Option<usize>,
     ) -> impl Iterator<Item = HedonicGame> {
-        Graph::enumerate(agent_count, graph_type == GraphType::Undirected, m_begin, m_end)
+        Graph::enumerate(agent_count, graph_type, m_begin, m_end)
             .map(move |g| Self::new(g, k, game_type))
     }
 
-    pub fn enumeate_unstable(
+    pub fn enumerate_unstable(
         agent_count: usize,
         graph_type: GraphType,
         m_begin: Weight,
@@ -126,7 +122,7 @@ impl HedonicGame {
     }
 
     pub fn count(agent_count: usize, graph_type: GraphType, m_begin: Weight, m_end: Weight) -> usize {
-        Graph::count(agent_count, graph_type == GraphType::Undirected, m_begin, m_end)
+        Graph::count(agent_count, graph_type, m_begin, m_end)
     }
 
     pub fn count_unstable(
@@ -471,6 +467,22 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_count_games() {
+        assert_eq!(HedonicGame::count(4, GraphType::Undirected, 0, 2), 72);
+        assert_eq!(HedonicGame::count(4, GraphType::Undirected, 2, 2), 61);
+    }
+
+    #[test]
+    fn test_count_unstable_games() {
+        let (count_unstable, count_total, _) =
+            HedonicGame::count_unstable(6, GraphType::Undirected, 2, 2, GameType::Fractional, Some(4));
+        assert_eq!(count_unstable, 9);
+        assert_eq!(count_total, 66515);
+        //let weights = vec![0, 1, 4, 7, 9];
+        //assert_eq!(HedonicGame::count_unstable(4, graph::GraphType::Undirected, 4, 4, Some(3), GameType::Fractional, Some(&weights), 0), (2, 775));
+    }
+
     // #[test]
     // fn test_hedonic_game_unbound_poa_for_non_simple_games() {
     //     for m in [10, 20] {
@@ -534,21 +546,5 @@ mod tests {
         let edges = vec![(0, 1, 9), (0, 2, 9), (0, 3, 4), (1, 2, 1), (1, 3, 7), (2, 3, 7)];
         let graph = Graph::from_edges(4, &edges, GraphType::Undirected);
         assert_eq!(globals::GAME_K3_NOEQUILIBRIUM_PAPER.graph, graph);
-    }
-
-    #[test]
-    fn test_count_games() {
-        assert_eq!(HedonicGame::count(4, GraphType::Undirected, 0, 2), 72);
-        assert_eq!(HedonicGame::count(4, GraphType::Undirected, 2, 2), 61);
-    }
-
-    #[test]
-    fn test_count_unstable_games() {
-        let (count_unstable, count_total, _) =
-            HedonicGame::count_unstable(6, GraphType::Undirected, 2, 2, GameType::Fractional, Some(4));
-        assert_eq!(count_unstable, 9);
-        assert_eq!(count_total, 66515);
-        //let weights = vec![0, 1, 4, 7, 9];
-        //assert_eq!(HedonicGame::count_unstable(4, graph::GraphType::Undirected, 4, 4, Some(3), GameType::Fractional, Some(&weights), 0), (2, 775));
     }
 }

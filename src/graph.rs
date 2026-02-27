@@ -11,8 +11,6 @@ pub enum GraphType {
     Undirected,
 }
 
-use GraphType::*;
-
 #[derive(Clone, Debug, PartialEq)]
 pub struct Graph {
     pub weights: Grid<Weight>,
@@ -36,25 +34,39 @@ impl Graph {
     }
 
     pub fn new(weights: Grid<Weight>, graph_type: GraphType) -> Self {
-        debug_assert!(weights.rows() == weights.cols(), "The weight matrix must be square.");
         debug_assert!(
-            graph_type == Directed || Self::is_symmetric_grid(&weights),
+            weights.rows() == weights.cols(),
+            "The weight matrix must be square."
+        );
+        debug_assert!(
+            graph_type == GraphType::Directed || Self::is_symmetric_grid(&weights),
             "The graph is undirected, but the weights matrix is not symmetric."
         );
-        Graph { weights, graph_type }
+        Graph {
+            weights,
+            graph_type,
+        }
     }
 
     pub fn from_grid(weights: Grid<Weight>) -> Self {
-        let graph_type = if Self::is_symmetric_grid(&weights) { Undirected } else { Directed };
+        let graph_type = if Self::is_symmetric_grid(&weights) {
+            GraphType::Undirected
+        } else {
+            GraphType::Directed
+        };
         Self::new(weights, graph_type)
     }
 
-    pub fn from_edges(num_nodes: usize, edges: &[(usize, usize, Weight)], graph_type: GraphType) -> Self {
-        let mut weights = Grid::<Weight>::new(num_nodes, num_nodes);
+    pub fn from_edges(
+        node_count: usize,
+        edges: &[(usize, usize, Weight)],
+        graph_type: GraphType,
+    ) -> Self {
+        let mut weights = Grid::<Weight>::new(node_count, node_count);
         for &(i, j, w) in edges {
-            debug_assert!(i < num_nodes && j < num_nodes, "Node number out of range");
+            debug_assert!(i < node_count && j < node_count, "Node number out of range");
             weights[(i, j)] = w;
-            if graph_type == Undirected {
+            if graph_type == GraphType::Undirected {
                 debug_assert!(
                     weights[(j, i)] == 0 || weights[(j, i)] == w,
                     "Graph is undirected but weights are not symmetric"
@@ -71,7 +83,7 @@ impl Graph {
 
     pub fn edge_count(&self) -> usize {
         let e = self.weights.iter().filter(|&&v| v > 0).count();
-        if self.graph_type == Directed { e } else { e / 2 }
+        if self.graph_type == GraphType::Directed { e } else { e / 2 }
     }
 
     pub fn nodes(&self) -> impl Iterator<Item = usize> {
@@ -81,7 +93,7 @@ impl Graph {
     pub fn edges(&self) -> impl Iterator<Item = (usize, usize, Weight)> {
         self.weights
             .indexed_iter()
-            .filter(|&((i, j), &v)| v > 0 && (self.graph_type == Directed || j > i))
+            .filter(|&((i, j), &v)| v > 0 && (self.graph_type == GraphType::Directed || j > i))
             .map(|((i, j), &v)| (i, j, v))
             .into_iter()
     }
@@ -91,19 +103,29 @@ impl Graph {
     }
 
     pub fn is_symmetric(&self) -> bool {
-        self.graph_type == Undirected || Self::is_symmetric_grid(&self.weights)
+        self.graph_type == GraphType::Undirected || Self::is_symmetric_grid(&self.weights)
     }
 
     pub fn is_directed(&self) -> bool {
-        self.graph_type == Directed
+        self.graph_type == GraphType::Directed
     }
 
-    pub fn enumerate(n: usize, is_symmetric: bool, m_begin: Weight, m_end: Weight) -> Enumerate {
-        Enumerate::new(n, is_symmetric, m_begin, m_end, 0)
+    pub fn enumerate(
+        node_count: usize,
+        graph_type: GraphType,
+        m_begin: Weight,
+        m_end: Weight,
+    ) -> Enumerate {
+        Enumerate::new(node_count, graph_type, m_begin, m_end, 0)
     }
 
-    pub fn count(n: usize, is_symmetric: bool, m_begin: Weight, m_end: Weight) -> usize {
-        Enumerate::new(n, is_symmetric, m_begin, m_end, 0).count()
+    pub fn count(
+        node_count: usize,
+        graph_type: GraphType,
+        m_begin: Weight,
+        m_end: Weight,
+    ) -> usize {
+        Enumerate::new(node_count, graph_type, m_begin, m_end, 0).count()
     }
 }
 
@@ -124,16 +146,16 @@ impl IndexMut<(usize, usize)> for Graph {
 #[derive(Debug)]
 pub struct Enumerate {
     weights: Grid<Weight>,
+    graph_type: GraphType,
     first_unvalid: usize,
     m_max: Weight,
     m_reached: Option<usize>,
     m_end: Weight,
-    is_symmetric: bool,
     debug: usize,
 }
 
 impl Enumerate {
-    fn new(n: usize, is_symmetric: bool, m_begin: Weight, m_end: Weight, debug: usize) -> Self {
+    fn new(n: usize, graph_type: GraphType, m_begin: Weight, m_end: Weight, debug: usize) -> Self {
         let weights = Grid::init(n, n, 0);
         if debug > 0 {
             println!("sought_reward: {}", m_begin);
@@ -142,12 +164,12 @@ impl Enumerate {
             }
         }
         Self {
-            weights: weights,
+            weights,
+            graph_type,
             first_unvalid: n * n - 1,
             m_max: m_begin,
             m_reached: None,
             m_end: m_end,
-            is_symmetric: is_symmetric,
             debug: debug,
         }
     }
@@ -171,7 +193,7 @@ impl Iterator for Enumerate {
         let mut col = n - 1;
         while self.m_max <= self.m_end {
             loop {
-                let bot = if self.is_symmetric && row > col {
+                let bot = if self.graph_type == GraphType::Undirected && row > col {
                     self.weights[(col, row)]
                 } else if row == 0 && col > 0 {
                     self.weights[(row, col - 1)]
@@ -182,13 +204,17 @@ impl Iterator for Enumerate {
                 };
                 let top = if row == col {
                     0
-                } else if self.is_symmetric && row > col {
+                } else if self.graph_type == GraphType::Undirected && row > col {
                     self.weights[(col, row)]
                 } else {
                     self.m_max
                 };
 
-                let v_new = if pos < self.first_unvalid { max(self.weights[(row, col)] + 1, bot) } else { bot };
+                let v_new = if pos < self.first_unvalid {
+                    max(self.weights[(row, col)] + 1, bot)
+                } else {
+                    bot
+                };
                 self.first_unvalid = pos + 1;
 
                 if v_new <= top {
@@ -227,10 +253,7 @@ impl Iterator for Enumerate {
                         }
                         if pos == pos_final {
                             if self.m_reached.is_some() {
-                                return Some(Graph::new(
-                                    self.weights.clone(),
-                                    if self.is_symmetric { Undirected } else { Directed },
-                                ));
+                                return Some(Graph::new(self.weights.clone(), self.graph_type));
                             }
                         } else {
                             let (nr, nc) = next_pos(row, col, n);
@@ -274,6 +297,7 @@ impl Iterator for Enumerate {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use GraphType::*;
     use std::sync::LazyLock;
 
     static G1: LazyLock<Graph> = LazyLock::new(|| Graph::from_grid(grid![[0,1][1,0]]));
@@ -305,13 +329,19 @@ mod tests {
             Graph::from_grid(grid![[0, 1] [1, 0]]),
             Graph::from_grid(grid![[0, 2] [2, 0]]),
         ];
-        assert_eq!(Graph::enumerate(2, true, 0, 2).collect::<Vec<_>>(), res);
-        assert_eq!(Graph::enumerate(2, true, 2, 2).collect::<Vec<_>>(), res[2..]);
+        assert_eq!(
+            Graph::enumerate(2, Undirected, 0, 2).collect::<Vec<_>>(),
+            res
+        );
+        assert_eq!(
+            Graph::enumerate(2, Undirected, 2, 2).collect::<Vec<_>>(),
+            res[2..]
+        );
     }
 
     #[test]
-    fn test_count_games() {
-        assert_eq!(Graph::count(4, true, 0, 2), 72);
-        assert_eq!(Graph::count(4, true, 2, 2), 61);
+    fn test_count_graphs() {
+        assert_eq!(Graph::count(4, Undirected, 0, 2), 72);
+        assert_eq!(Graph::count(4, Undirected, 2, 2), 61);
     }
 }
